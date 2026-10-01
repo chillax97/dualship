@@ -1,0 +1,13 @@
+{
+  "name": "dualship",
+  "description": "Dualship: pre-submission checks for Claude and ChatGPT plugins.",
+  "owner": {
+    "name": "Osman Baha Sert"
+  },
+  "plugins": [
+    {
+      "name": "dualship",
+      "source": "./"
+    }
+  ]
+}

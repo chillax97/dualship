@@ -1,0 +1,11 @@
+{
+  "name": "dualship",
+  "displayName": "Dualship",
+  "version": "0.1.0",
+  "description": "Check a plugin against the Claude directory checks and the ChatGPT plugin guidelines before you submit, and fix what blocks it.",
+  "author": { "name": "Osman Baha Sert", "email": "osmanbahasert@gmail.com" },
+  "homepage": "https://github.com/osmanbahasert/dualship",
+  "repository": "https://github.com/osmanbahasert/dualship",
+  "license": "MIT",
+  "keywords": ["plugins", "submission", "lint", "chatgpt", "directory"]
+}
