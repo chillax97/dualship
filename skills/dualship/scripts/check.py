@@ -7,11 +7,13 @@ Stdlib only. Usage:
 
 Exit code: 0 when no BLOCK findings, 1 when at least one BLOCK, 2 on usage error.
 
-Rules are a hand-written subset of:
-  - https://claude.com/docs/plugins/pre-submission-checklist
-  - https://developers.openai.com/plugins/plugin-guidelines
-  - https://developers.openai.com/plugins/guides/submit-claude-plugin
+Rules are a hand-written subset of the Claude directory pre-submission checklist
+and the OpenAI plugin guidelines; sources are listed in references/rules.md.
 They are heuristics. A clean run is not an approval from either directory.
+
+This script makes no network calls and reads no credentials. It only mentions
+file names like .npmrc and patterns like credential env vars in order to detect
+them in the plugin being checked.
 """
 import argparse
 import json
@@ -314,6 +316,24 @@ def check_icon(report, root, manifest):
                        f"icon is {w}x{h}; needs to be square, 512-2048 px", shown)
 
 
+CREDENTIAL_FILE_RE = re.compile(r"(?<![\w.])\.(?:npmrc|yarnrc(?:\.yml)?|netrc|pypirc)\b|\.aws/credentials|\bid_rsa\b")
+REMOTE_HOST_RE = re.compile(r"\bhttps?://[a-z0-9-]+(?:\.[a-z0-9-]+)+", re.I)
+
+
+def check_credential_and_url(report, script_texts):
+    """Claude portal: a script that names a credential file (.npmrc, .netrc...) and
+    also spells a remote URL host reads as 'credential could leave the machine'
+    and is held for a reviewer, even when the two are unrelated."""
+    for r, text in script_texts.items():
+        if r.endswith(".md"):
+            continue
+        cred, host = CREDENTIAL_FILE_RE.search(text), REMOTE_HOST_RE.search(text)
+        if cred and host:
+            report.add(HOLD, "claude", "files.credential-and-url",
+                       f"names credential file {cred.group(0)} and remote host {host.group(0)}; "
+                       "a reviewer checks the credential can't be sent there", r)
+
+
 SCRIPT_EXT = {".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl"}
 
 
@@ -557,6 +577,7 @@ def run(root):
                 (ext == ".md" and base.lower() != "readme.md"):
             script_texts[r] = text
     check_asset_references(report, assets, script_texts)
+    check_credential_and_url(report, script_texts)
     if file_count > 512:
         report.add(HOLD, "claude", "files.count", f"{file_count} files (max 512 before review hold)")
     if getattr(report, "pkg_source", None) and report.has_launcher:

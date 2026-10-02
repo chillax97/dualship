@@ -35,6 +35,18 @@ in `skills/dualship/references/rules.md`.
 It is a heuristic. A clean run is not approval. Both directories also run
 security scans and human or policy review that a local script can't reproduce.
 
+## What it runs, reads and sends
+
+- Runs one local Python script, `skills/dualship/scripts/check.py`, using only
+  the Python standard library. Nothing is installed.
+- Reads the files in the plugin folder you point it at. It reads no credentials,
+  environment variables, or files outside that folder.
+- Sends nothing. The script makes no network calls.
+- The script and its tests mention credential file names (such as `.npmrc`),
+  credential-style environment variable patterns, and example URLs because those
+  are what it detects. The tests write fake versions of them into temporary
+  folders. Automated scanners may flag these mentions for human review.
+
 ## Privacy
 
 Runs locally. Collects and sends nothing. See `PRIVACY.md`.

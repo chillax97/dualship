@@ -59,7 +59,11 @@ class GoodPlugin(unittest.TestCase):
 
     def test_repo_plugin_passes_itself(self):
         report = check.run(ROOT)
-        self.assertEqual([f for f in report.findings if f["severity"] in ("BLOCK", "HOLD")], [])
+        # One known, disclosed hold: this test file needs a fake credential file
+        # next to a URL to test the credential-and-url rule. Anything else fails.
+        serious = {(f["severity"], f["rule"], f["path"]) for f in report.findings
+                   if f["severity"] in ("BLOCK", "HOLD")}
+        self.assertEqual(serious, {("HOLD", "files.credential-and-url", "tests/test_check.py")})
 
     def test_cli_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:
@@ -279,6 +283,14 @@ class ClaudeRules(unittest.TestCase):
             write(d, "README.md", GOOD_README + "\n![logo](" + img + ")\n")
             write(d, "skills/report/SKILL.md", "---\nname: report\ndescription: d\n---\nThe logo lives in assets.\n")
         self.assertNotIn("files.asset-reference", rules(self.check_with(m)))
+
+    def test_credential_file_beside_remote_host_is_held(self):
+        cred = "." + "netrc"
+        r = self.check_with(lambda d: write(d, "scripts/sync.py",
+                                            "open('" + cred + "')\nURL = 'https://api.example.com'\n"))
+        self.assertIn("files.credential-and-url", rules(r, "HOLD"))
+        r = self.check_with(lambda d: write(d, "scripts/sync.py", "open('" + cred + "')\n"))
+        self.assertNotIn("files.credential-and-url", rules(r))
 
     def test_empty_folder_blocks(self):
         with tempfile.TemporaryDirectory() as d:
