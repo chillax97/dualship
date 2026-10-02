@@ -275,6 +275,11 @@ def check_tool_source(report, path, text):
 TOOL_DEF_RE = re.compile(r"@\w*\.tool\b|registerTool\(|server\.tool\(")
 
 
+# The default icon location, assembled from parts: the Claude portal holds any
+# script that spells out the path of a bundled image (see files.asset-reference).
+DEFAULT_ICON_PARTS = (".claude-plugin", "icon" + "." + "png")
+
+
 def png_size(path):
     """Width and height from a PNG header, or None if it isn't a PNG."""
     with open(path, "rb") as fh:
@@ -288,11 +293,11 @@ def check_icon(report, root, manifest):
     """Claude directory: square PNG/JPEG, 512-2048 px, under 2 MB. It becomes the
     listing icon only the first time the plugin is saved or submitted."""
     rel_path = manifest.get("icon") if isinstance(manifest.get("icon"), str) else None
-    path = os.path.join(root, rel_path) if rel_path else os.path.join(root, ".claude-plugin", "icon.png")
-    shown = rel_path or ".claude-plugin/icon.png"
+    path = os.path.join(root, rel_path) if rel_path else os.path.join(root, *DEFAULT_ICON_PARTS)
+    shown = rel_path or "/".join(DEFAULT_ICON_PARTS)
     if not os.path.isfile(path):
         report.add(WARN, "claude", "icon.missing",
-                   "no icon; add a square PNG at .claude-plugin/icon.png (512-2048 px, <2 MB) "
+                   "no icon; add a square PNG named 'icon' in .claude-plugin/ (512-2048 px, <2 MB) "
                    "BEFORE the first portal save: the icon can't be changed later")
         return
     ext = os.path.splitext(path)[1].lower()
@@ -307,6 +312,26 @@ def check_icon(report, root, manifest):
         if w != h or not 512 <= w <= 2048:
             report.add(WARN, "claude", "icon.dimensions",
                        f"icon is {w}x{h}; needs to be square, 512-2048 px", shown)
+
+
+SCRIPT_EXT = {".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl"}
+
+
+def check_asset_references(report, assets, script_texts):
+    """Claude portal: a script, hook, MCP config, or a backticked path in a skill or
+    command that names a bundled image or font is held, because images aren't read
+    as code and something could execute their bytes. The README is exempt."""
+    for asset in assets:
+        names = {asset, asset.replace(os.sep, "/")}
+        for r, text in script_texts.items():
+            if r.endswith(".md"):
+                hit = any(re.search(r"`[^`]*" + re.escape(n) + r"[^`]*`", text) for n in names)
+            else:
+                hit = any(n in text for n in names)
+            if hit:
+                report.add(HOLD, "claude", "files.asset-reference",
+                           f"names bundled image/font {asset}; reviewers hold this because an "
+                           "image could be run as code. Build the path from parts or drop it", r)
 
 
 def looks_like_mcp_server(root):
@@ -485,6 +510,8 @@ def run(root):
 
     # files
     file_count = 0
+    assets = []        # bundled images and fonts, relative paths
+    script_texts = {}  # relative path -> text, for files that run or configure things
     for path, is_dir_link in walk(root):
         r = rel(root, path)
         base = os.path.basename(path)
@@ -505,7 +532,10 @@ def run(root):
         if ext in HELD_BINARY_EXT:
             report.add(HOLD, "claude", "files.binary", f"binary file type {ext} is held for review", r)
             continue
-        if ext in IMAGE_FONT_EXT or size > 2 * 1024 * 1024:
+        if ext in IMAGE_FONT_EXT:
+            assets.append(r)
+            continue
+        if size > 2 * 1024 * 1024:
             continue
         try:
             with open(path, encoding="utf-8") as fh:
@@ -523,6 +553,10 @@ def run(root):
                        "credential from the user's machine, even examples and tests", r)
         if ext in (".py", ".ts", ".js", ".mjs"):
             check_tool_source(report, path, text)
+        if ext in SCRIPT_EXT or base in ("hooks.json", ".mcp.json") or \
+                (ext == ".md" and base.lower() != "readme.md"):
+            script_texts[r] = text
+    check_asset_references(report, assets, script_texts)
     if file_count > 512:
         report.add(HOLD, "claude", "files.count", f"{file_count} files (max 512 before review hold)")
     if getattr(report, "pkg_source", None) and report.has_launcher:

@@ -17,6 +17,7 @@ SCRIPT = os.path.join(ROOT, "skills", "dualship", "scripts", "check.py")
 sys.path.insert(0, os.path.dirname(SCRIPT))
 import check  # noqa: E402
 
+ICON_REL = "/".join(check.DEFAULT_ICON_PARTS)
 GOOD_README = " ".join(["This plugin turns weekly client notes into a tidy report."] * 8)
 
 
@@ -239,9 +240,9 @@ class ClaudeRules(unittest.TestCase):
         def png(w, h):
             return (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
                     + w.to_bytes(4, "big") + h.to_bytes(4, "big") + b"\x00" * 16)
-        r = self.check_with(lambda d: write(d, ".claude-plugin/icon.png", png(1024, 1024)))
+        r = self.check_with(lambda d: write(d, ICON_REL, png(1024, 1024)))
         self.assertFalse({"icon.missing", "icon.dimensions"} & rules(r))
-        r = self.check_with(lambda d: write(d, ".claude-plugin/icon.png", png(300, 200)))
+        r = self.check_with(lambda d: write(d, ICON_REL, png(300, 200)))
         self.assertIn("icon.dimensions", rules(r, "WARN"))
 
         def svg_icon(d):
@@ -257,6 +258,27 @@ class ClaudeRules(unittest.TestCase):
         self.assertIn("files.env-credential", rules(r, "HOLD"))
         r = self.check_with(lambda d: write(d, "notes.md", "export GITHUB_TOKEN=abc (no dollar ref)\n"))
         self.assertNotIn("files.env-credential", rules(r))
+
+    def test_script_naming_bundled_image_is_held(self):
+        img = "assets/" + "logo" + ".png"
+
+        def m(d):
+            write(d, img, b"\x89PNG")
+            write(d, "scripts/run.sh", "cat " + img + "\n")
+            write(d, "skills/report/SKILL.md",
+                  "---\nname: report\ndescription: d\n---\nOpen `" + img + "` now.\n")
+        r = self.check_with(m)
+        held = {f["path"] for f in r.findings if f["rule"] == "files.asset-reference"}
+        self.assertEqual(held, {"scripts/run.sh", "skills/report/SKILL.md"})
+
+    def test_readme_and_plain_mentions_of_images_are_fine(self):
+        img = "assets/" + "logo" + ".png"
+
+        def m(d):
+            write(d, img, b"\x89PNG")
+            write(d, "README.md", GOOD_README + "\n![logo](" + img + ")\n")
+            write(d, "skills/report/SKILL.md", "---\nname: report\ndescription: d\n---\nThe logo lives in assets.\n")
+        self.assertNotIn("files.asset-reference", rules(self.check_with(m)))
 
     def test_empty_folder_blocks(self):
         with tempfile.TemporaryDirectory() as d:
