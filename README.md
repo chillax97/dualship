@@ -42,10 +42,9 @@ security scans and human or policy review that a local script can't reproduce.
 - Reads the files in the plugin folder you point it at. It reads no credentials,
   environment variables, or files outside that folder.
 - Sends nothing. The script makes no network calls.
-- The script and its tests mention credential file names (such as `.npmrc`),
-  credential-style environment variable patterns, and example URLs because those
-  are what it detects. The tests write fake versions of them into temporary
-  folders. Automated scanners may flag these mentions for human review.
+- The script mentions credential file names (such as `.npmrc`) and
+  credential-style environment variable patterns because those are what it
+  detects. It never opens them outside the plugin folder being checked.
 
 ## Privacy
 

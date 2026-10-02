@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import unicodedata
+from urllib.parse import urlparse
 
 BLOCK, HOLD, WARN, NOTE = "BLOCK", "HOLD", "WARN", "NOTE"
 SEVERITY_ORDER = {BLOCK: 0, HOLD: 1, WARN: 2, NOTE: 3}
@@ -191,6 +192,12 @@ def check_text_for_promo(report, label, text, path=None):
                    "rejected if it advertises your own pricing", path)
 
 
+def is_secure_url(url, schemes):
+    """True when the URL parses with one of the given schemes and has a host."""
+    parsed = urlparse(url)
+    return parsed.scheme.lower() in schemes and bool(parsed.netloc)
+
+
 def check_mcp_servers(report, servers, source):
     if not isinstance(servers, dict):
         return
@@ -206,7 +213,7 @@ def check_mcp_servers(report, servers, source):
                 report.add(BLOCK, "claude", "mcp.type",
                            f"remote server {sid!r} needs type http, sse or ws (got {stype!r})", source)
             if isinstance(url, str) and url and not url.startswith("${user_config.") \
-                    and not url.startswith(("https://", "wss://")):
+                    and not is_secure_url(url, ("https", "wss")):
                 report.add(BLOCK, "claude", "mcp.https", f"server {sid!r} URL is not https: {url}", source)
             headers = json.dumps(cfg.get("headers", {}))
             for label, pat in SECRET_PATTERNS:
@@ -317,7 +324,7 @@ def check_icon(report, root, manifest):
 
 
 CREDENTIAL_FILE_RE = re.compile(r"(?<![\w.])\.(?:npmrc|yarnrc(?:\.yml)?|netrc|pypirc)\b|\.aws/credentials|\bid_rsa\b")
-REMOTE_HOST_RE = re.compile(r"\bhttps?://[a-z0-9-]+(?:\.[a-z0-9-]+)+", re.I)
+REMOTE_HOST_RE = re.compile(r"\b(?:https?|wss?)://(?:[a-z0-9-]+(?:\.[a-z0-9-]+)+)?", re.I)
 
 
 def check_credential_and_url(report, script_texts):
@@ -502,7 +509,7 @@ def run(root):
                             if h.get("type") == "command":
                                 check_launcher(report, str(h.get("command", "")), "hooks/hooks.json",
                                                f"{event} hook")
-                            if h.get("type") == "http" and not str(h.get("url", "")).startswith("https://"):
+                            if h.get("type") == "http" and not is_secure_url(str(h.get("url", "")), ("https",)):
                                 report.add(BLOCK, "claude", "hooks.http", f"{event} HTTP hook URL is not https")
         report.add(NOTE, "openai", "hooks.codex-only",
                    "hooks only run in ChatGPT Work / Codex, not in ChatGPT chat")
