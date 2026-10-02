@@ -448,6 +448,10 @@ def run(root):
                     report.add(WARN, "claude", "manifest.path", f"{key} path {p!r} should start with ./")
         if isinstance(manifest.get("mcpServers"), dict):
             check_mcp_servers(report, manifest["mcpServers"], ".claude-plugin/plugin.json")
+        for key in ("privacyPolicyUrl", "supportUrl"):
+            if not manifest.get(key):
+                report.add(WARN, "claude", f"listing.{key}",
+                           f"no `{key}` in .claude-plugin/plugin.json; the directory listing shows it as not set")
         if manifest.get("userConfig"):
             report.add(WARN, "openai", "userconfig",
                        "userConfig values are dropped by OpenAI; replace with OAuth or explicit inputs")
