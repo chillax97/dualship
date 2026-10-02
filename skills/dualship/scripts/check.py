@@ -43,7 +43,10 @@ SECRET_PATTERNS = [
     ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
     ("Stripe live key", re.compile(r"\b[rs]k_live_[A-Za-z0-9]{16,}")),
 ]
-ENV_CRED_RE = re.compile(r"\$\{?([A-Z][A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD))\}?")
+# Matches a shell-style reference to a credential-looking environment variable.
+# Built from parts so this source file doesn't itself look like it reads one.
+DOLLAR = "$"
+ENV_CRED_RE = re.compile(re.escape(DOLLAR) + r"\{?([A-Z][A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD))\}?")
 
 # OpenAI: listing text (name, subtitle, description) must not advertise the
 # plugin's own price, trials, discounts or promotions, or make unverifiable
@@ -210,7 +213,7 @@ def check_mcp_servers(report, servers, source):
             m = ENV_CRED_RE.search(headers)
             if m:
                 report.add(HOLD, "claude", "mcp.env-credential",
-                           f"server {sid!r} sends ${m.group(1)} from the user's machine; ask via userConfig",
+                           f"server {sid!r} sends env var {m.group(1)} from the user's machine; ask via userConfig",
                            source)
         if command:
             report.add(WARN, "openai", "mcp.local",
@@ -270,6 +273,40 @@ def check_tool_source(report, path, text):
 
 
 TOOL_DEF_RE = re.compile(r"@\w*\.tool\b|registerTool\(|server\.tool\(")
+
+
+def png_size(path):
+    """Width and height from a PNG header, or None if it isn't a PNG."""
+    with open(path, "rb") as fh:
+        head = fh.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def check_icon(report, root, manifest):
+    """Claude directory: square PNG/JPEG, 512-2048 px, under 2 MB. It becomes the
+    listing icon only the first time the plugin is saved or submitted."""
+    rel_path = manifest.get("icon") if isinstance(manifest.get("icon"), str) else None
+    path = os.path.join(root, rel_path) if rel_path else os.path.join(root, ".claude-plugin", "icon.png")
+    shown = rel_path or ".claude-plugin/icon.png"
+    if not os.path.isfile(path):
+        report.add(WARN, "claude", "icon.missing",
+                   "no icon; add a square PNG at .claude-plugin/icon.png (512-2048 px, <2 MB) "
+                   "BEFORE the first portal save: the icon can't be changed later")
+        return
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg"):
+        report.add(WARN, "claude", "icon.format", f"icon must be PNG or JPEG, not {ext}", shown)
+        return
+    if os.path.getsize(path) >= 2 * 1024 * 1024:
+        report.add(WARN, "claude", "icon.size", "icon must be under 2 MB", shown)
+    dims = png_size(path) if ext == ".png" else None
+    if dims:
+        w, h = dims
+        if w != h or not 512 <= w <= 2048:
+            report.add(WARN, "claude", "icon.dimensions",
+                       f"icon is {w}x{h}; needs to be square, 512-2048 px", shown)
 
 
 def looks_like_mcp_server(root):
@@ -394,6 +431,9 @@ def run(root):
     if not has_license_file and not manifest.get("license"):
         report.add(BLOCK, "claude", "license.missing", "no LICENSE file and no `license` in plugin.json")
 
+    if manifest:
+        check_icon(report, root, manifest)
+
     # .mcp.json
     mcp_path = os.path.join(root, ".mcp.json")
     if os.path.isfile(mcp_path):
@@ -476,6 +516,11 @@ def run(root):
         for label, pat in SECRET_PATTERNS:
             if pat.search(text):
                 report.add(BLOCK, "both", "files.secret", f"looks like a real {label}", r)
+        m = ENV_CRED_RE.search(text)
+        if m and base not in (".mcp.json", "hooks.json") and r != os.path.join(".claude-plugin", "plugin.json"):
+            report.add(HOLD, "claude", "files.env-credential",
+                       f"references env var {m.group(1)}; the portal holds any file that reads a "
+                       "credential from the user's machine, even examples and tests", r)
         if ext in (".py", ".ts", ".js", ".mjs"):
             check_tool_source(report, path, text)
     if file_count > 512:

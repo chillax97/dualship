@@ -169,7 +169,7 @@ class ClaudeRules(unittest.TestCase):
             write(d, ".mcp.json", {"mcpServers": {
                 "plain": {"type": "http", "url": "http://api.example.com/mcp"},
                 "envtok": {"type": "http", "url": "https://api.example.com/mcp",
-                           "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"}},
+                           "headers": {"Authorization": "Bearer " + "$" + "{GITHUB_TOKEN}"}},
                 "ok": {"type": "http", "url": "https://api.example.com/mcp"},
                 "cfg": {"type": "http", "url": "${user_config.endpoint}"},
             }})
@@ -230,6 +230,33 @@ class ClaudeRules(unittest.TestCase):
             r = check.run(d)
             self.assertIn("marketplace.pick-one", rules(r, "BLOCK"))
             self.assertIn("./plugin", r.findings[-1]["message"])
+
+    def test_icon_missing_warns(self):
+        r = self.check_with(lambda d: None)
+        self.assertIn("icon.missing", rules(r, "WARN"))
+
+    def test_icon_checks(self):
+        def png(w, h):
+            return (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
+                    + w.to_bytes(4, "big") + h.to_bytes(4, "big") + b"\x00" * 16)
+        r = self.check_with(lambda d: write(d, ".claude-plugin/icon.png", png(1024, 1024)))
+        self.assertFalse({"icon.missing", "icon.dimensions"} & rules(r))
+        r = self.check_with(lambda d: write(d, ".claude-plugin/icon.png", png(300, 200)))
+        self.assertIn("icon.dimensions", rules(r, "WARN"))
+
+        def svg_icon(d):
+            data = read_manifest(d)
+            data["icon"] = "./assets/icon.svg"
+            write(d, ".claude-plugin/plugin.json", data)
+            write(d, "assets/icon.svg", "<svg/>")
+        self.assertIn("icon.format", rules(self.check_with(svg_icon), "WARN"))
+
+    def test_env_credential_in_any_file_is_held(self):
+        ref = "$" + "{GITHUB_TOKEN}"
+        r = self.check_with(lambda d: write(d, "tests/test_x.py", "headers = {'a': '" + ref + "'}\n"))
+        self.assertIn("files.env-credential", rules(r, "HOLD"))
+        r = self.check_with(lambda d: write(d, "notes.md", "export GITHUB_TOKEN=abc (no dollar ref)\n"))
+        self.assertNotIn("files.env-credential", rules(r))
 
     def test_empty_folder_blocks(self):
         with tempfile.TemporaryDirectory() as d:
